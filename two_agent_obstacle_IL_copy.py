@@ -95,33 +95,25 @@ Y_train_down = torch.tensor(np.array(Y_train_down), dtype=torch.float32)  # Shap
 
 # Initialize Model, Loss Function, and Optimizers
 model_up = ImitationNet(input_size=4, hidden_size=64, output_size=2)
-criterion_up = nn.MSELoss()  # Mean Squared Error Loss
-optimizer_up = optim.Adam(model_up.parameters(), lr=0.001)
-
 model_down = ImitationNet(input_size=4, hidden_size=64, output_size=2)
-criterion_down = nn.MSELoss()  # Mean Squared Error Loss
-optimizer_down = optim.Adam(model_down.parameters(), lr=0.001)
+criterion = nn.MSELoss()  # Mean Squared Error Loss
+optimizer = optim.Adam(list(model_up.parameters()) + list(model_down.parameters()), lr=0.001)
 
 # Train the Model
-num_epochs = 100
+num_epochs = 1000
 losses_up = []
 losses_down = []
 
 for epoch in range(num_epochs):
     predictions_up = model_up(X_train_up)
-    loss_up = criterion_up(predictions_up, Y_train_up)
-    # Backpropagation and optimization
-    optimizer_up.zero_grad()
-    loss_up.backward()
-    optimizer_up.step()
-    losses_up.append(loss_up.item())
-
+    loss_up = criterion(predictions_up, Y_train_up)
     predictions_down = model_down(X_train_down)
-    loss_down = criterion_down(predictions_down, Y_train_down)
-    # Backpropagation and optimization
-    optimizer_down.zero_grad()
-    loss_down.backward()
-    optimizer_down.step()
+    loss_down = criterion(predictions_down, Y_train_down)
+    joint_loss = 0.5 * loss_up + 0.5 * loss_down
+    optimizer.zero_grad()
+    joint_loss.backward()
+    optimizer.step()
+    losses_up.append(loss_up.item())
     losses_down.append(loss_down.item())
     if (epoch + 1) % 50 == 0:
         print(f'Epoch [{epoch + 1}/{num_epochs}], Loss Up: {loss_up.item():.4f}, Loss Down: {loss_down.item():.4f}')
