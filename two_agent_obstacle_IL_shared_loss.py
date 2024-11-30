@@ -100,7 +100,7 @@ criterion = nn.MSELoss()  # Mean Squared Error Loss
 optimizer = optim.Adam(list(model_up.parameters()) + list(model_down.parameters()), lr=0.001)
 
 # Train the Model
-num_epochs = 1000
+num_epochs = 5000
 losses_up = []
 losses_down = []
 
@@ -172,7 +172,7 @@ plt.title('Smooth Imitation Learning: Expert vs Generated Trajectories')
 plt.xlabel('X')
 plt.ylabel('Y')
 plt.grid(True)
-# plt.savefig('figures/two_agent_obstacle_IL/expertlearned_5000epochs_1000expert.png')
+plt.savefig('figures/two_agents_shared/expert_vs_generated_trajectories.png')
 plt.show()
 
 # Plot the Training Loss
@@ -183,5 +183,5 @@ plt.title('Training Loss')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.grid(True)
-# plt.savefig('figures/two_agent_obstacle_IL/loss_5000epochs_1000expert.png')
+plt.savefig('figures/two_agents_shared/loss_graph.png')
 plt.show()
