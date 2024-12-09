@@ -95,33 +95,25 @@ Y_train_down = torch.tensor(np.array(Y_train_down), dtype=torch.float32)  # Shap
 
 # Initialize Model, Loss Function, and Optimizers
 model_up = ImitationNet(input_size=4, hidden_size=64, output_size=2)
-criterion_up = nn.MSELoss()  # Mean Squared Error Loss
-optimizer_up = optim.Adam(model_up.parameters(), lr=0.001)
-
 model_down = ImitationNet(input_size=4, hidden_size=64, output_size=2)
-criterion_down = nn.MSELoss()  # Mean Squared Error Loss
-optimizer_down = optim.Adam(model_down.parameters(), lr=0.001)
+criterion = nn.MSELoss()  # Mean Squared Error Loss
+optimizer = optim.Adam(list(model_up.parameters()) + list(model_down.parameters()), lr=0.001)
 
 # Train the Model
-num_epochs = 100
+num_epochs = 5000
 losses_up = []
 losses_down = []
 
 for epoch in range(num_epochs):
     predictions_up = model_up(X_train_up)
-    loss_up = criterion_up(predictions_up, Y_train_up)
-    # Backpropagation and optimization
-    optimizer_up.zero_grad()
-    loss_up.backward()
-    optimizer_up.step()
-    losses_up.append(loss_up.item())
-
+    loss_up = criterion(predictions_up, Y_train_up)
     predictions_down = model_down(X_train_down)
-    loss_down = criterion_down(predictions_down, Y_train_down)
-    # Backpropagation and optimization
-    optimizer_down.zero_grad()
-    loss_down.backward()
-    optimizer_down.step()
+    loss_down = criterion(predictions_down, Y_train_down)
+    joint_loss = 0.5 * loss_up + 0.5 * loss_down
+    optimizer.zero_grad()
+    joint_loss.backward()
+    optimizer.step()
+    losses_up.append(loss_up.item())
     losses_down.append(loss_down.item())
     if (epoch + 1) % 50 == 0:
         print(f'Epoch [{epoch + 1}/{num_epochs}], Loss Up: {loss_up.item():.4f}, Loss Down: {loss_down.item():.4f}')
@@ -151,16 +143,16 @@ generated_trajectory_down = np.array(generated_trajectory_down)
 
 # Plot the Expert and Generated Trajectories with a Single Central Obstacle
 plt.figure(figsize=(20, 8))
-for traj in expert_data_up[:20]:  # Plot a few expert trajectories
-    first_trajectory = traj
-    x = [point[0] for point in first_trajectory]
-    y = [point[1] for point in first_trajectory]
-    plt.plot(x, y, 'b--')
-for traj in expert_data_down[:20]:  # Plot a few expert trajectories
-    first_trajectory = traj
-    x = [point[0] for point in first_trajectory]
-    y = [point[1] for point in first_trajectory]
-    plt.plot(x, y, 'g--')
+# for traj in expert_data_up[:20]:  # Plot a few expert trajectories
+#     first_trajectory = traj
+#     x = [point[0] for point in first_trajectory]
+#     y = [point[1] for point in first_trajectory]
+#     plt.plot(x, y, 'b--')
+# for traj in expert_data_down[:20]:  # Plot a few expert trajectories
+#     first_trajectory = traj
+#     x = [point[0] for point in first_trajectory]
+#     y = [point[1] for point in first_trajectory]
+#     plt.plot(x, y, 'g--')
 
 # Plot the generated trajectory
 plt.plot(generated_trajectory_up[:, 0], generated_trajectory_up[:, 1], 'r-', label='Generated')
@@ -175,12 +167,12 @@ plt.gca().add_patch(circle)
 plt.scatter(initial_point_up[0], initial_point_up[1], c='red', s=100, label='Start/End')
 plt.scatter(final_point_up[0], final_point_up[1], c='red', s=100, label='Start/End')
 
-plt.legend()
-plt.title('Smooth Imitation Learning: Expert vs Generated Trajectories')
+# plt.legend()
+# plt.title('Smooth Imitation Learning: Expert vs Generated Trajectories')
 plt.xlabel('X')
 plt.ylabel('Y')
 plt.grid(True)
-# plt.savefig('figures/two_agent_obstacle_IL/expertlearned_5000epochs_1000expert.png')
+plt.savefig('figures/two_agents_shared/expert_vs_generated_trajectories_noexpert.png')
 plt.show()
 
 # Plot the Training Loss
@@ -191,5 +183,5 @@ plt.title('Training Loss')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.grid(True)
-# plt.savefig('figures/two_agent_obstacle_IL/loss_5000epochs_1000expert.png')
+plt.savefig('figures/two_agents_shared/loss_graph.png')
 plt.show()

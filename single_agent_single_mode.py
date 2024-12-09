@@ -32,7 +32,7 @@ obstacle = (10, 0, 4.0)  # Single central obstacle: (x, y, radius)
 
 # Parse expert data from single_uni_full_traj.csv
 import csv
-with open('single_uni_full_traj_up.csv', 'r') as file:
+with open('data/single_uni_full_traj_up.csv', 'r') as file:
     reader = csv.reader(file)
     all_points = []
     for row in reader:
@@ -100,12 +100,11 @@ generated_trajectory = np.array(generated_trajectory)
 
 # Plot the Expert and Generated Trajectories with a Single Central Obstacle
 plt.figure(figsize=(20, 8))
-for traj in expert_data[:20]:  # Plot a few expert trajectories
-    first_trajectory = traj
-    x = [point[0] for point in first_trajectory]
-    y = [point[1] for point in first_trajectory]
-    plt.plot(x, y, 'b--')
-    # plt.plot(traj[:][0], traj[:][1], 'b--', alpha=0.5, label='Expert' if traj is expert_data[0] else "")
+# for traj in expert_data[:20]:  # Plot a few expert trajectories
+#     first_trajectory = traj
+#     x = [point[0] for point in first_trajectory]
+#     y = [point[1] for point in first_trajectory]
+#     plt.plot(x, y, 'b--')
 
 # Plot the generated trajectory
 plt.plot(generated_trajectory[:, 0], generated_trajectory[:, 1], 'r-', label='Generated')
@@ -119,20 +118,20 @@ plt.gca().add_patch(circle)
 plt.scatter(initial_point[0], initial_point[1], c='green', s=100, label='Start')
 plt.scatter(final_point[0], final_point[1], c='red', s=100, label='End')
 
-plt.legend()
-plt.title('Smooth Imitation Learning: Expert vs Generated Trajectories')
+# plt.legend()
+# plt.title('Smooth Imitation Learning: Expert vs Generated Trajectories')
 plt.xlabel('X')
 plt.ylabel('Y')
 plt.grid(True)
-plt.savefig('figures/single_mode/expertlearned_5000epochs_1000expert.png')
+plt.savefig('figures/single_agent_obstacle_IL/single_mode/expertlearned_5000epochs_1000expert_noexpert.png')
 plt.show()
 
-# Plot the Training Loss
-plt.figure()
-plt.plot(losses)
-plt.title('Training Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.grid(True)
-plt.savefig('figures/single_mode/loss_5000epochs_1000expert.png')
-plt.show()
+# # Plot the Training Loss
+# plt.figure()
+# plt.plot(losses)
+# plt.title('Training Loss')
+# plt.xlabel('Epoch')
+# plt.ylabel('Loss')
+# plt.grid(True)
+# plt.savefig('figures/single_mode/loss_5000epochs_1000expert.png')
+# plt.show()
