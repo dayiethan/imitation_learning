@@ -169,7 +169,7 @@ plt.scatter(final_point[0], final_point[1], c='red', s=100, label='Start/End')
 plt.xlabel('X')
 plt.ylabel('Y')
 plt.grid(True)
-plt.savefig('figures/two_agent_obstacle_IL/dual_mode_noexpert.png')
+plt.savefig('figures/two_agent/dual_mode/TADM_noexpert.png')
 plt.show()
 
 # # Plot the Training Loss

@@ -123,7 +123,7 @@ plt.scatter(final_point[0], final_point[1], c='red', s=100, label='End')
 plt.xlabel('X')
 plt.ylabel('Y')
 plt.grid(True)
-plt.savefig('figures/single_agent_obstacle_IL/dual_mode/expertlearned_5000epochs_1000expert_noexpert.png')
+plt.savefig('figures/single_agent/dual_mode/SADM_noexpert.png')
 plt.show()
 
 # # Plot the Training Loss
