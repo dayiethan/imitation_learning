@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+from scipy.stats import entropy
 
 # Set random seeds for reproducibility
 np.random.seed(42)
@@ -24,6 +25,46 @@ class ImitationNet(nn.Module):
         x = self.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+def calculate_kl_divergence(p_data, q_data):
+    """ Compute KL Divergence between two Gaussian distributions """
+    # Convert input data to 2D point arrays
+    def process_data(data):
+        if isinstance(data, list) and isinstance(data[0], (list, np.ndarray)):
+            # Flatten list of trajectories
+            return np.concatenate([np.array(traj) for traj in data])
+        return np.array(data)
+    
+    p_points = process_data(p_data)
+    q_points = process_data(q_data)
+
+    # Add small epsilon for numerical stability
+    epsilon = 1e-6
+    p_points += np.random.normal(0, epsilon, p_points.shape)  # Prevent identical points
+    q_points += np.random.normal(0, epsilon, q_points.shape)
+
+    # Calculate means and covariance matrices
+    mu_p = np.mean(p_points, axis=0)
+    mu_q = np.mean(q_points, axis=0)
+    
+    sigma_p = np.cov(p_points, rowvar=False) + epsilon * np.eye(p_points.shape[1])
+    sigma_q = np.cov(q_points, rowvar=False) + epsilon * np.eye(q_points.shape[1])
+
+    # Calculate KL divergence components
+    k = mu_p.shape[0]
+    sigma_q_inv = np.linalg.inv(sigma_q)
+    
+    tr_term = np.trace(sigma_q_inv @ sigma_p)
+    delta = mu_p - mu_q
+    quadratic_term = delta.T @ sigma_q_inv @ delta
+    logdet_term = np.log(np.linalg.det(sigma_q) / np.linalg.det(sigma_p))
+    
+    kl = 0.5 * (tr_term + quadratic_term - k + logdet_term)
+    return kl
+
+def calculate_mse(expert_trajectory, generated_trajectory):
+    """ Compute Mean Squared Error between two trajectories """
+    return np.mean((expert_trajectory - generated_trajectory) ** 2)
 
 # Define initial and final points, and a single central obstacle
 initial_point = np.array([0.0, 0.0])
@@ -46,12 +87,8 @@ expert_data = [
     all_points[i * points_per_trajectory:(i + 1) * points_per_trajectory]
     for i in range(num_trajectories)
 ]
-first_trajectory = expert_data[0]
-x = [point[0] for point in first_trajectory]
-y = [point[1] for point in first_trajectory]
 
 # Prepare Data for Training
-# Create input-output pairs (state + goal -> next state)
 X_train = []
 Y_train = []
 
@@ -76,7 +113,6 @@ for epoch in range(num_epochs):
     predictions = model(X_train)
     loss = criterion(predictions, Y_train)
 
-    # Backpropagation and optimization
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
@@ -97,6 +133,12 @@ with torch.no_grad():
         state = torch.tensor(np.hstack([next_state, final_point]), dtype=torch.float32).unsqueeze(0)
 
 generated_trajectory = np.array(generated_trajectory)
+
+# Calculate MSE and KL Divergence
+kl_div_single = calculate_kl_divergence(expert_data, generated_trajectory)
+mse_single = calculate_mse(np.array(expert_data[0]), generated_trajectory)  # Compare with first expert trajectory
+
+print(f"KL Divergence Single: {kl_div_single:.4f}, MSE Single: {mse_single:.4f}")
 
 # Plot the Expert and Generated Trajectories with a Single Central Obstacle
 plt.figure(figsize=(20, 8))
@@ -123,7 +165,7 @@ plt.scatter(final_point[0], final_point[1], c='red', s=100, label='End')
 plt.xlabel('X')
 plt.ylabel('Y')
 plt.grid(True)
-plt.savefig('figures/single_agent/single_mode/SASM_noexpert.png')
+plt.savefig('figures/single_agent/dual_mode/SADM_noexpert.png')
 plt.show()
 
 # # Plot the Training Loss

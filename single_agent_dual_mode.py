@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
 import random
+from scipy.stats import norm
 
 # Set random seeds for reproducibility
 np.random.seed(42)
@@ -24,6 +25,59 @@ class ImitationNet(nn.Module):
         x = self.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+# def calculate_kl_divergence(p_data, q_data):
+#     """ Compute KL Divergence between two data distributions """
+#     p_hist, _ = np.histogram(p_data, bins=30, density=True)
+#     q_hist, _ = np.histogram(q_data, bins=30, density=True)
+    
+#     # Adding a small constant to avoid division by zero
+#     kl_divergence = entropy(p_hist + 1e-6, q_hist + 1e-6)
+#     return kl_divergence
+
+# def calculate_mse(expert_trajectory, generated_trajectory):
+#     """ Compute Mean Squared Error between two trajectories """
+#     return np.mean((expert_trajectory - generated_trajectory) ** 2)
+
+def calculate_kl_divergence(p_data, q_data):
+    """ Compute KL Divergence between two Gaussian distributions """
+    # Convert input data to 2D point arrays
+    def process_data(data):
+        if isinstance(data, list) and isinstance(data[0], (list, np.ndarray)):
+            # Flatten list of trajectories
+            return np.concatenate([np.array(traj) for traj in data])
+        return np.array(data)
+    
+    p_points = process_data(p_data)
+    q_points = process_data(q_data)
+
+    # Add small epsilon for numerical stability
+    epsilon = 1e-6
+    p_points += np.random.normal(0, epsilon, p_points.shape)  # Prevent identical points
+    q_points += np.random.normal(0, epsilon, q_points.shape)
+
+    # Calculate means and covariance matrices
+    mu_p = np.mean(p_points, axis=0)
+    mu_q = np.mean(q_points, axis=0)
+    
+    sigma_p = np.cov(p_points, rowvar=False) + epsilon * np.eye(p_points.shape[1])
+    sigma_q = np.cov(q_points, rowvar=False) + epsilon * np.eye(q_points.shape[1])
+
+    # Calculate KL divergence components
+    k = mu_p.shape[0]
+    sigma_q_inv = np.linalg.inv(sigma_q)
+    
+    tr_term = np.trace(sigma_q_inv @ sigma_p)
+    delta = mu_p - mu_q
+    quadratic_term = delta.T @ sigma_q_inv @ delta
+    logdet_term = np.log(np.linalg.det(sigma_q) / np.linalg.det(sigma_p))
+    
+    kl = 0.5 * (tr_term + quadratic_term - k + logdet_term)
+    return kl
+
+def calculate_mse(expert_trajectory, generated_trajectory):
+    """ Compute Mean Squared Error between two trajectories """
+    return np.mean((expert_trajectory - generated_trajectory) ** 2)
 
 # Define initial and final points, and a single central obstacle
 initial_point = np.array([0.0, 0.0])
@@ -97,6 +151,11 @@ with torch.no_grad():
         state = torch.tensor(np.hstack([next_state, final_point]), dtype=torch.float32).unsqueeze(0)
 
 generated_trajectory = np.array(generated_trajectory)
+# Calculate MSE and KL Divergence
+kl_div_single = calculate_kl_divergence(expert_data, generated_trajectory)
+mse_single = calculate_mse(np.array(expert_data[0]), generated_trajectory)  # Compare with first expert trajectory
+
+print(f"KL Divergence Single: {kl_div_single:.4f}, MSE Single: {mse_single:.4f}")
 
 # Plot the Expert and Generated Trajectories with a Single Central Obstacle
 plt.figure(figsize=(20, 8))
