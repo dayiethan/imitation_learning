@@ -10,7 +10,7 @@ This table compares the **KL Divergence** and **MSE** values for different model
 | **two_agent_shared_mode**      | 0.0265           | 0.1922  | 0.0607             | 0.8005   |
 | **two_agent_single_mode**      | 0.3458           | 0.7404  | 0.0593             | 0.7812   |
 | **magail.py**                  | 0.0185           | 0.6616  | 0.0381             | 0.4258   |
-
+| **two_agent_dual_mode_magail**        | 276.4294           | 2.7700  | 734.6217             | 54.3776  |
 ### Explanation
 - **KL Divergence** measures how much the generated trajectory distribution deviates from the expert data distribution. Lower values are better.
 - **MSE (Mean Squared Error)** quantifies the average squared difference between the generated and expert trajectories. Again, lower values are better.
