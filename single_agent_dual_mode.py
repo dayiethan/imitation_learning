@@ -4,14 +4,16 @@ import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-from scipy.stats import norm
+from scipy.spatial.distance import cdist
+import ot  # 需安装：pip install pot
+import csv
 
-# Set random seeds for reproducibility
+# ---------------------- 配置与种子设置 ----------------------
 np.random.seed(42)
 torch.manual_seed(42)
 random.seed(42)
 
-# Define the Neural Network for Imitation Learning
+# ---------------------- 神经网络定义 ----------------------
 class ImitationNet(nn.Module):
     def __init__(self, input_size=4, hidden_size=64, output_size=2):
         super(ImitationNet, self).__init__()
@@ -26,171 +28,159 @@ class ImitationNet(nn.Module):
         x = self.fc3(x)
         return x
 
-# def calculate_kl_divergence(p_data, q_data):
-#     """ Compute KL Divergence between two data distributions """
-#     p_hist, _ = np.histogram(p_data, bins=30, density=True)
-#     q_hist, _ = np.histogram(q_data, bins=30, density=True)
-    
-#     # Adding a small constant to avoid division by zero
-#     kl_divergence = entropy(p_hist + 1e-6, q_hist + 1e-6)
-#     return kl_divergence
-
-# def calculate_mse(expert_trajectory, generated_trajectory):
-#     """ Compute Mean Squared Error between two trajectories """
-#     return np.mean((expert_trajectory - generated_trajectory) ** 2)
-
+# ---------------------- 轨迹评估函数 ----------------------
 def calculate_kl_divergence(p_data, q_data):
-    """ Compute KL Divergence between two Gaussian distributions """
-    # Convert input data to 2D point arrays
+    """计算高斯分布的KL散度"""
     def process_data(data):
-        if isinstance(data, list) and isinstance(data[0], (list, np.ndarray)):
-            # Flatten list of trajectories
-            return np.concatenate([np.array(traj) for traj in data])
-        return np.array(data)
+        return np.concatenate([np.array(traj) for traj in data]) if isinstance(data[0], (list, np.ndarray)) else np.array(data)
     
-    p_points = process_data(p_data)
-    q_points = process_data(q_data)
-
-    # Add small epsilon for numerical stability
-    epsilon = 1e-6
-    p_points += np.random.normal(0, epsilon, p_points.shape)  # Prevent identical points
-    q_points += np.random.normal(0, epsilon, q_points.shape)
-
-    # Calculate means and covariance matrices
-    mu_p = np.mean(p_points, axis=0)
-    mu_q = np.mean(q_points, axis=0)
+    p_flat = process_data(p_data)
+    q_flat = process_data([q_data])  # 适配单条轨迹输入
     
-    sigma_p = np.cov(p_points, rowvar=False) + epsilon * np.eye(p_points.shape[1])
-    sigma_q = np.cov(q_points, rowvar=False) + epsilon * np.eye(q_points.shape[1])
-
-    # Calculate KL divergence components
-    k = mu_p.shape[0]
-    sigma_q_inv = np.linalg.inv(sigma_q)
+    mu_p, mu_q = p_flat.mean(0), q_flat.mean(0)
+    cov_p = np.cov(p_flat, rowvar=False) + 1e-8 * np.eye(2)
+    cov_q = np.cov(q_flat, rowvar=False) + 1e-8 * np.eye(2)
     
-    tr_term = np.trace(sigma_q_inv @ sigma_p)
-    delta = mu_p - mu_q
-    quadratic_term = delta.T @ sigma_q_inv @ delta
-    logdet_term = np.log(np.linalg.det(sigma_q) / np.linalg.det(sigma_p))
-    
-    kl = 0.5 * (tr_term + quadratic_term - k + logdet_term)
+    det_p, det_q = np.linalg.det(cov_p), np.linalg.det(cov_q)
+    tr_term = np.trace(np.linalg.inv(cov_q) @ cov_p)
+    quad_term = (mu_p - mu_q).T @ np.linalg.inv(cov_q) @ (mu_p - mu_q)
+    kl = 0.5 * (tr_term + quad_term - 2 + np.log(det_q / det_p))
     return kl
 
-def calculate_mse(expert_trajectory, generated_trajectory):
-    """ Compute Mean Squared Error between two trajectories """
-    return np.mean((expert_trajectory - generated_trajectory) ** 2)
+def calculate_mse(expert_traj, gen_traj):
+    """计算单条轨迹的MSE"""
+    return np.mean((expert_traj - gen_traj) ** 2)
 
-# Define initial and final points, and a single central obstacle
+def discrete_frechet(curve1, curve2):
+    """计算离散Frechet距离（动态规划实现）"""
+    m, n = len(curve1), len(curve2)
+    dp = np.full((m+1, n+1), np.inf)
+    dp[0, 0] = 0
+    
+    for i in range(m):
+        for j in range(n):
+            d = np.linalg.norm(curve1[i] - curve2[j])
+            dp[i+1, j+1] = d + min(dp[i, j+1], dp[i+1, j], dp[i, j])
+    return dp[m, n]
+
+def calculate_emd(expert_trajectories, generated_trajectories):
+    """计算两组轨迹的EMD"""
+    n_expert = len(expert_trajectories)
+    n_gen = len(generated_trajectories)
+    D = np.zeros((n_expert, n_gen))
+    
+    for i in range(n_expert):
+        for j in range(n_gen):
+            D[i, j] = discrete_frechet(expert_trajectories[i], generated_trajectories[j])
+    
+    w_expert = np.ones(n_expert) / n_expert
+    w_gen = np.ones(n_gen) / n_gen
+    return ot.emd2(w_expert, w_gen, D)
+
+# ---------------------- 数据处理与训练 ----------------------
 initial_point = np.array([0.0, 0.0])
 final_point = np.array([20.0, 0.0])
-obstacle = (10, 0, 4.0)  # Single central obstacle: (x, y, radius)
+obstacle = (10, 0, 4.0)
 
-# Parse expert data from single_uni_full_traj.csv
-import csv
-with open('data/single_uni_full_traj.csv', 'r') as file:
+# 解析专家数据
+with open('/mnt/data1/chendazhong/imitation_learning/data/single_uni_full_traj.csv', 'r') as file:
     reader = csv.reader(file)
-    all_points = []
-    for row in reader:
-        x, y = float(row[2]), float(row[3])
-        all_points.append((x, y))
+    all_points = np.array([[float(row[2]), float(row[3])] for row in reader])
 
 num_trajectories = 1000
 points_per_trajectory = 100
-
 expert_data = [
-    all_points[i * points_per_trajectory:(i + 1) * points_per_trajectory]
+    all_points[i*points_per_trajectory : (i+1)*points_per_trajectory]
     for i in range(num_trajectories)
 ]
-first_trajectory = expert_data[0]
-x = [point[0] for point in first_trajectory]
-y = [point[1] for point in first_trajectory]
 
-# Prepare Data for Training
-# Create input-output pairs (state + goal -> next state)
-X_train = []
-Y_train = []
-
+# 准备训练数据
+X_train, Y_train = [], []
 for traj in expert_data:
-    for i in range(len(traj) - 1):
-        X_train.append(np.hstack([traj[i], final_point]))  # Current state + goal
-        Y_train.append(traj[i + 1])  # Next state
+    for t in range(len(traj)-1):
+        X_train.append(np.hstack([traj[t], final_point]))
+        Y_train.append(traj[t+1])
 
-X_train = torch.tensor(np.array(X_train), dtype=torch.float32)  # Shape: (N, 4)
-Y_train = torch.tensor(np.array(Y_train), dtype=torch.float32)  # Shape: (N, 2)
+X_train = torch.tensor(np.array(X_train), dtype=torch.float32)
+Y_train = torch.tensor(np.array(Y_train), dtype=torch.float32)
 
-# Initialize Model, Loss Function, and Optimizers
-model = ImitationNet(input_size=4, hidden_size=64, output_size=2)
-criterion = nn.MSELoss()  # Mean Squared Error Loss
+# 训练模型
+model = ImitationNet()
+criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Train the Model
-num_epochs = 5000
 losses = []
-
-for epoch in range(num_epochs):
-    predictions = model(X_train)
-    loss = criterion(predictions, Y_train)
-
-    # Backpropagation and optimization
-    optimizer.zero_grad()
+for epoch in range(5000):
+    pred = model(X_train)
+    loss = criterion(pred, Y_train)
     loss.backward()
     optimizer.step()
-
     losses.append(loss.item())
-    if (epoch + 1) % 50 == 0:
-        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+    if (epoch+1) % 500 == 0:
+        print(f'Epoch {epoch+1}/5000, Loss: {loss.item():.4f}')
 
-# Generate a New Trajectory Using the Trained Model
-with torch.no_grad():
-    state = np.hstack([initial_point, final_point])  # Initial state + goal
-    state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-    generated_trajectory = [initial_point]
+# ---------------------- 生成多条轨迹并评估 ----------------------
+num_generated = 100  # 生成20条轨迹用于EMD计算
+generated_trajectories = []
 
-    for _ in range(points_per_trajectory - 1):  # 100 steps total
-        next_state = model(state).numpy().squeeze()
-        generated_trajectory.append(next_state)
-        state = torch.tensor(np.hstack([next_state, final_point]), dtype=torch.float32).unsqueeze(0)
+for _ in range(num_generated):
+    with torch.no_grad():
+        state = np.hstack([initial_point, final_point])
+        traj = [initial_point.copy()]
+        for _ in range(points_per_trajectory-1):
+            next_state = model(torch.tensor(state, dtype=torch.float32).unsqueeze(0)).numpy().squeeze()
+            traj.append(next_state)
+            state = np.hstack([next_state, final_point])
+        generated_trajectories.append(np.array(traj))
 
-generated_trajectory = np.array(generated_trajectory)
-# Calculate MSE and KL Divergence
-kl_div_single = calculate_kl_divergence(expert_data, generated_trajectory)
-mse_single = calculate_mse(np.array(expert_data[0]), generated_trajectory)  # Compare with first expert trajectory
+# ---------------------- 评估指标计算 ----------------------
+# 1. KL散度（专家全集 vs 生成单条轨迹，保留原逻辑）
+kl_div_single = calculate_kl_divergence(expert_data, generated_trajectories[0])
 
-print(f"KL Divergence Single: {kl_div_single:.4f}, MSE Single: {mse_single:.4f}")
+# 2. MSE（单条对比）
+mse_single = calculate_mse(expert_data[0], generated_trajectories[0])
 
-# Plot the Expert and Generated Trajectories with a Single Central Obstacle
-plt.figure(figsize=(20, 8))
-# for traj in expert_data[:20]:  # Plot a few expert trajectories
-#     first_trajectory = traj
-#     x = [point[0] for point in first_trajectory]
-#     y = [point[1] for point in first_trajectory]
-#     plt.plot(x, y, 'b--')
+# 3. EMD（轨迹集合对比，20×20矩阵）
+emd_value = calculate_emd(expert_data[:num_generated], generated_trajectories)
 
-# Plot the generated trajectory
-plt.plot(generated_trajectory[:, 0], generated_trajectory[:, 1], 'r-', label='Generated')
+print(f"Evaluation Results：")
+print(f"KL Divergence: {kl_div_single:.4f}")
+print(f"MSE (first trajectory): {mse_single:.4f}")
+print(f"EMD: {emd_value:.4f}")
 
-# Plot the single central obstacle as a circle
-ox, oy, r = obstacle
-circle = plt.Circle((ox, oy), r, color='gray', alpha=0.3)
+# ---------------------- 可视化 ----------------------
+plt.figure(figsize=(15, 8))
+
+# 绘制专家轨迹（前5条）
+for traj in expert_data[:5]:
+    plt.plot(traj[:, 0], traj[:, 1], 'b--', alpha=0.5, label='Expert' if traj is expert_data[0] else "")
+
+# 绘制生成轨迹
+for traj in generated_trajectories:
+    plt.plot(traj[:, 0], traj[:, 1], 'r-', alpha=0.7, label='Generated' if traj is generated_trajectories[0] else "")
+
+# 绘制障碍物
+circle = plt.Circle(obstacle[:2], obstacle[2], color='gray', alpha=0.3)
 plt.gca().add_patch(circle)
+plt.scatter(*initial_point, c='green', s=100, label='Start')
+plt.scatter(*final_point, c='red', s=100, label='End')
 
-# Mark start and end points
-plt.scatter(initial_point[0], initial_point[1], c='green', s=100, label='Start')
-plt.scatter(final_point[0], final_point[1], c='red', s=100, label='End')
-
-# plt.legend()
-# plt.title('Smooth Imitation Learning: Expert vs Generated Trajectories')
+plt.legend()
+plt.title(f'轨迹对比 (EMD: {emd_value:.2f})')
 plt.xlabel('X')
 plt.ylabel('Y')
+plt.xlim(-2, 22)
+plt.ylim(-5, 5)
 plt.grid(True)
-plt.savefig('figures/single_agent/dual_mode/SADM_noexpert.png')
+plt.savefig('figures/single_agent/dual_mode/SADM_with_emd.png')
 plt.show()
 
-# # Plot the Training Loss
-# plt.figure()
-# plt.plot(losses)
-# plt.title('Training Loss')
-# plt.xlabel('Epoch')
-# plt.ylabel('Loss')
-# plt.grid(True)
-# plt.savefig('figures/single_mode/loss_5000epochs_1000expert.png')
-# plt.show()
+# 绘制损失曲线
+plt.figure(figsize=(10, 4))
+plt.plot(losses)
+plt.title('训练损失曲线')
+plt.xlabel('Epoch')
+plt.ylabel('MSE Loss')
+plt.grid(True)
+plt.savefig('/mnt/data1/chendazhong/imitation_learning/figures/single_mode/loss_curve.png')
+plt.show()
